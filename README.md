@@ -2,13 +2,6 @@
 
 一个用于链动小铺商品页的油猴脚本。它会在页面右下角提供商品显示面板，可随时显示或隐藏缺货商品、按价格排序，并修复筛选后可能出现的列表空洞或瀑布流错位。
 
-## 项目信息
-
-- 作者：[@SuperMaxine](https://github.com/SuperMaxine)
-- 仓库：[SuperMaxine/ldxp-hide-out-of-stock](https://github.com/SuperMaxine/ldxp-hide-out-of-stock)
-- 问题反馈：[GitHub Issues](https://github.com/SuperMaxine/ldxp-hide-out-of-stock/issues)
-- 当前版本：`1.2.1`
-
 ## 功能
 
 - 在页面内动态切换显示或隐藏缺货商品
