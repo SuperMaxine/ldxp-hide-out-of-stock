@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         链动小铺 - 自动隐藏缺货商品
 // @namespace    https://github.com/SuperMaxine/ldxp-hide-out-of-stock
-// @version      1.2.1
+// @version      1.2.2
 // @description  动态隐藏链动小铺缺货商品，并支持按价格排序。
 // @author       SuperMaxine
 // @homepageURL  https://github.com/SuperMaxine/ldxp-hide-out-of-stock
@@ -162,6 +162,20 @@
     return Number.isFinite(number) ? number : 0;
   }
 
+  function getOuterWidth(card) {
+    const computed = getComputedStyle(card);
+    const measuredWidth =
+      card.getBoundingClientRect().width ||
+      toPixels(computed.width) ||
+      toPixels(computed.minWidth);
+
+    return (
+      measuredWidth +
+      toPixels(computed.marginLeft) +
+      toPixels(computed.marginRight)
+    );
+  }
+
   function ensureControls() {
     if (controls || !document.body) return;
 
@@ -312,18 +326,15 @@
     const orderedCards = getOrderedCards(cards);
 
     const availableCards = [];
-    let columnWidth = 0;
+    const standardWidths = [];
+    const fallbackWidths = [];
 
     for (const card of orderedCards) {
-      const computed = getComputedStyle(card);
-      const measuredWidth =
-        card.getBoundingClientRect().width || toPixels(computed.width);
-      const outerWidth =
-        measuredWidth +
-        toPixels(computed.marginLeft) +
-        toPixels(computed.marginRight);
-
-      columnWidth = Math.max(columnWidth, outerWidth);
+      const outerWidth = getOuterWidth(card);
+      if (outerWidth > 48) fallbackWidths.push(outerWidth);
+      if (card.classList.contains('has_image') && outerWidth > 48) {
+        standardWidths.push(outerWidth);
+      }
 
       if (setCardVisibility(card)) continue;
 
@@ -341,9 +352,12 @@
       };
     }
 
-    if (columnWidth <= 0) {
-      columnWidth = container.clientWidth || 1;
-    }
+    const columnWidth =
+      standardWidths.length > 0
+        ? Math.max(...standardWidths)
+        : fallbackWidths.length > 0
+          ? Math.min(...fallbackWidths)
+        : container.clientWidth || 1;
 
     const columnCount = Math.max(
       1,
@@ -352,9 +366,25 @@
     const columnHeights = new Array(columnCount).fill(0);
 
     for (const card of availableCards) {
+      const columnSpan = Math.min(
+        columnCount,
+        Math.max(1, Math.ceil((getOuterWidth(card) - 1) / columnWidth)),
+      );
+
       let column = 0;
-      for (let index = 1; index < columnHeights.length; index += 1) {
-        if (columnHeights[index] < columnHeights[column]) column = index;
+      let top = Number.POSITIVE_INFINITY;
+      for (
+        let candidate = 0;
+        candidate <= columnCount - columnSpan;
+        candidate += 1
+      ) {
+        const candidateTop = Math.max(
+          ...columnHeights.slice(candidate, candidate + columnSpan),
+        );
+        if (candidateTop < top) {
+          column = candidate;
+          top = candidateTop;
+        }
       }
 
       const computed = getComputedStyle(card);
@@ -364,8 +394,10 @@
         toPixels(computed.marginBottom);
 
       card.style.left = `${column * columnWidth}px`;
-      card.style.top = `${columnHeights[column]}px`;
-      columnHeights[column] += outerHeight;
+      card.style.top = `${top}px`;
+      for (let index = column; index < column + columnSpan; index += 1) {
+        columnHeights[index] = top + outerHeight;
+      }
     }
 
     container.style.height = `${Math.max(...columnHeights)}px`;
