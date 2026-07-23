@@ -1,9 +1,13 @@
 // ==UserScript==
 // @name         链动小铺 - 自动隐藏缺货商品
-// @namespace    https://pay.ldxp.cn/
-// @version      1.2.0
+// @namespace    https://github.com/SuperMaxine/ldxp-hide-out-of-stock
+// @version      1.2.1
 // @description  动态隐藏链动小铺缺货商品，并支持按价格排序。
-// @author       Codex
+// @author       SuperMaxine
+// @homepageURL  https://github.com/SuperMaxine/ldxp-hide-out-of-stock
+// @supportURL   https://github.com/SuperMaxine/ldxp-hide-out-of-stock/issues
+// @updateURL    https://raw.githubusercontent.com/SuperMaxine/ldxp-hide-out-of-stock/main/ldxp-hide-out-of-stock.user.js
+// @downloadURL  https://raw.githubusercontent.com/SuperMaxine/ldxp-hide-out-of-stock/main/ldxp-hide-out-of-stock.user.js
 // @match        https://pay.ldxp.cn/shop/*
 // @run-at       document-start
 // @grant        none
