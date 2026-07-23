@@ -14,6 +14,20 @@
 - 仅在 `https://pay.ldxp.cn/shop/*` 页面运行
 - 不读取账户数据，不保存浏览记录，不发送网络请求
 
+## 使用截图
+
+### 瀑布流模板
+
+价格从高到低排列，同时隐藏缺货商品：
+
+![瀑布流模板中的商品筛选与价格排序](docs/images/masonry-view.png)
+
+### 纵向列表模板
+
+价格从低到高排列，同时显示当前隐藏数量：
+
+![纵向列表模板中的商品筛选与价格排序](docs/images/list-view.png)
+
 ## 安装
 
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 或其他兼容的用户脚本管理器。
