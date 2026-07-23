@@ -2,6 +2,13 @@
 
 一个用于链动小铺商品页的油猴脚本。它会在页面右下角提供商品显示面板，可随时显示或隐藏缺货商品、按价格排序，并修复筛选后可能出现的列表空洞或瀑布流错位。
 
+## 项目信息
+
+- 作者：[@SuperMaxine](https://github.com/SuperMaxine)
+- 仓库：[SuperMaxine/ldxp-hide-out-of-stock](https://github.com/SuperMaxine/ldxp-hide-out-of-stock)
+- 问题反馈：[GitHub Issues](https://github.com/SuperMaxine/ldxp-hide-out-of-stock/issues)
+- 当前版本：`1.2.1`
+
 ## 功能
 
 - 在页面内动态切换显示或隐藏缺货商品
@@ -17,9 +24,8 @@
 ## 安装
 
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 或其他兼容的用户脚本管理器。
-2. 打开仓库中的 [`ldxp-hide-out-of-stock.user.js`](./ldxp-hide-out-of-stock.user.js)。
-3. 点击 GitHub 页面右上方的 **Raw**。
-4. 在用户脚本管理器弹出的安装页面中确认安装。
+2. 打开 [`ldxp-hide-out-of-stock.user.js`](https://raw.githubusercontent.com/SuperMaxine/ldxp-hide-out-of-stock/main/ldxp-hide-out-of-stock.user.js)。
+3. 在用户脚本管理器弹出的安装页面中确认安装。
 
 如果脚本管理器没有自动弹出，也可以新建脚本，将文件内容完整粘贴进去并保存。
 
