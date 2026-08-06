@@ -1,16 +1,19 @@
 // ==UserScript==
-// @name         链动小铺 - 自动隐藏缺货商品
+// @name         链动小铺增强工具
 // @namespace    https://github.com/SuperMaxine/ldxp-hide-out-of-stock
-// @version      1.2.2
-// @description  动态隐藏链动小铺缺货商品，并支持按价格排序。
+// @version      1.3.0
+// @description  隐藏链动小铺缺货商品、按价格排序，并在购买页自动填写联系方式和安全密码。
 // @author       SuperMaxine
 // @homepageURL  https://github.com/SuperMaxine/ldxp-hide-out-of-stock
 // @supportURL   https://github.com/SuperMaxine/ldxp-hide-out-of-stock/issues
 // @updateURL    https://raw.githubusercontent.com/SuperMaxine/ldxp-hide-out-of-stock/main/ldxp-hide-out-of-stock.user.js
 // @downloadURL  https://raw.githubusercontent.com/SuperMaxine/ldxp-hide-out-of-stock/main/ldxp-hide-out-of-stock.user.js
 // @match        https://pay.ldxp.cn/shop/*
+// @match        https://pay.ldxp.cn/item/*
 // @run-at       document-start
-// @grant        none
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_deleteValue
 // ==/UserScript==
 
 (function () {
@@ -24,18 +27,70 @@
   const HIDDEN_STYLE_ID = 'ldxp-hide-out-of-stock-style';
   const CONTROLS_ID = 'ldxp-product-controls';
   const ROOT_STATE_ATTRIBUTE = 'data-ldxp-hide-oos';
+  const CONTACT_SELECTORS = [
+    '.contact_box input',
+    'input[placeholder="请输入联系方式方便查询订单"]',
+    'input[placeholder="请输入手机号（11位）"]',
+    'input[placeholder="请输入QQ号（5-12位数字）"]',
+    'input[placeholder="请输入微信号（6-20位）"]',
+    'input[placeholder="请输入邮箱地址"]',
+  ];
+  const SAFETY_PASSWORD_SELECTORS = [
+    'input[placeholder="为保障您的卡密安全，请设置安全密码"]',
+  ];
+  const STORAGE_KEYS = {
+    hideOutOfStock: 'hideOutOfStock',
+    sortOrder: 'sortOrder',
+    contact: 'checkoutContact',
+    safetyPassword: 'checkoutSafetyPassword',
+  };
+  const isShopPage = location.pathname.startsWith('/shop/');
+  const isItemPage = location.pathname.startsWith('/item/');
+
+  function readSetting(key, fallbackValue) {
+    try {
+      return GM_getValue(key, fallbackValue);
+    } catch (error) {
+      console.warn('[链动小铺增强工具] 读取设置失败：', error);
+      return fallbackValue;
+    }
+  }
+
+  function writeSetting(key, value) {
+    try {
+      GM_setValue(key, value);
+    } catch (error) {
+      console.warn('[链动小铺增强工具] 保存设置失败：', error);
+    }
+  }
+
+  function deleteSetting(key) {
+    try {
+      GM_deleteValue(key);
+    } catch (error) {
+      console.warn('[链动小铺增强工具] 清除设置失败：', error);
+    }
+  }
+
+  const savedSortOrder = readSetting(STORAGE_KEYS.sortOrder, 'default');
 
   const state = {
-    hideOutOfStock: true,
-    sortOrder: 'default',
+    hideOutOfStock: readSetting(STORAGE_KEYS.hideOutOfStock, true) !== false,
+    sortOrder: ['default', 'asc', 'desc'].includes(savedSortOrder)
+      ? savedSortOrder
+      : 'default',
   };
 
   const originalOrders = new WeakMap();
   let nextOriginalOrder = 0;
   let controls;
+  let productStats = { total: 0, outOfStock: 0 };
+  let autofillMessage = '';
 
   let layoutTimer;
   let settleTimer;
+  let autofillTimer;
+  let autofillSettleTimer;
 
   function installStyle() {
     let style = document.getElementById(HIDDEN_STYLE_ID);
@@ -61,7 +116,7 @@
         right: 16px;
         bottom: 16px;
         z-index: 999;
-        width: 272px;
+        width: 304px;
         box-sizing: border-box;
         padding: 12px;
         color: #f7f7f8;
@@ -70,6 +125,8 @@
         background: #000;
         border: 1px solid #c6ff4a;
         border-left-width: 4px;
+        max-height: calc(100vh - 32px);
+        overflow-y: auto;
       }
 
       #${CONTROLS_ID} * {
@@ -78,15 +135,24 @@
       }
 
       #${CONTROLS_ID} .ldxp-controls-title {
-        margin: 0 0 10px;
+        margin: 0;
         color: #f7f7f8;
         font-weight: 700;
         font-size: 13px;
       }
 
+      #${CONTROLS_ID} .ldxp-control-section-title {
+        margin: 10px 0 3px;
+        color: #c6ff4a;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+      }
+
       #${CONTROLS_ID} .ldxp-control-row {
         display: grid;
-        grid-template-columns: 88px minmax(0, 1fr);
+        grid-template-columns: 92px minmax(0, 1fr);
+        gap: 8px;
         align-items: center;
         min-height: 34px;
         border-top: 1px solid #2a2a2a;
@@ -112,7 +178,9 @@
         accent-color: #c6ff4a;
       }
 
-      #${CONTROLS_ID} select {
+      #${CONTROLS_ID} select,
+      #${CONTROLS_ID} input[type="text"],
+      #${CONTROLS_ID} input[type="password"] {
         width: 100%;
         min-width: 0;
         padding: 5px 6px;
@@ -124,10 +192,48 @@
         outline: none;
       }
 
+      #${CONTROLS_ID} input::placeholder {
+        color: #737373;
+      }
+
       #${CONTROLS_ID} select:focus-visible,
       #${CONTROLS_ID} input:focus-visible {
         outline: 2px solid #c6ff4a;
         outline-offset: 2px;
+      }
+
+      #${CONTROLS_ID} .ldxp-autofill-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 84px;
+        gap: 8px;
+        margin-top: 8px;
+      }
+
+      #${CONTROLS_ID} .ldxp-button {
+        min-height: 30px;
+        padding: 5px 8px;
+        color: #000;
+        font-size: 12px;
+        font-weight: 700;
+        background: #c6ff4a;
+        border: 1px solid #c6ff4a;
+        border-radius: 0;
+        cursor: pointer;
+      }
+
+      #${CONTROLS_ID} .ldxp-button-secondary {
+        color: #f7f7f8;
+        background: #000;
+      }
+
+      #${CONTROLS_ID} .ldxp-button:hover {
+        filter: brightness(0.9);
+      }
+
+      #${CONTROLS_ID} .ldxp-local-note {
+        margin: 7px 0 0;
+        color: #8e8e8e;
+        font-size: 10px;
       }
 
       #${CONTROLS_ID} .ldxp-controls-status {
@@ -135,13 +241,14 @@
         padding-top: 8px;
         color: #c6ff4a;
         border-top: 1px solid #c6ff4a;
+        white-space: pre-line;
       }
 
       @media (max-width: 560px) {
         #${CONTROLS_ID} {
           right: 12px;
           bottom: 12px;
-          width: min(272px, calc(100vw - 24px));
+          width: min(304px, calc(100vw - 24px));
         }
       }
     `;
@@ -176,18 +283,169 @@
     );
   }
 
+  function getSavedCheckoutDetails() {
+    const contact = readSetting(STORAGE_KEYS.contact, '');
+    const safetyPassword = readSetting(STORAGE_KEYS.safetyPassword, '');
+
+    return {
+      contact: typeof contact === 'string' ? contact : '',
+      safetyPassword:
+        typeof safetyPassword === 'string' ? safetyPassword : '',
+    };
+  }
+
+  function findInput(selectors) {
+    for (const selector of selectors) {
+      const input = document.querySelector(selector);
+      if (input?.tagName === 'INPUT') return input;
+    }
+    return null;
+  }
+
+  function setNativeInputValue(input, value) {
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      Object.getPrototypeOf(input),
+      'value',
+    )?.set;
+
+    if (valueSetter) {
+      valueSetter.call(input, value);
+    } else {
+      input.value = value;
+    }
+
+    const EventConstructor = input.ownerDocument.defaultView?.Event || Event;
+    input.dispatchEvent(new EventConstructor('input', { bubbles: true }));
+    input.dispatchEvent(new EventConstructor('change', { bubbles: true }));
+  }
+
+  function fillCheckoutFields({ overwrite = false } = {}) {
+    const details = getSavedCheckoutDetails();
+    const fields = [
+      { input: findInput(CONTACT_SELECTORS), value: details.contact },
+      {
+        input: findInput(SAFETY_PASSWORD_SELECTORS),
+        value: details.safetyPassword,
+      },
+    ];
+    const result = {
+      savedCount: 0,
+      foundCount: 0,
+      readyCount: 0,
+      preservedCount: 0,
+    };
+
+    for (const field of fields) {
+      if (!field.value) continue;
+      result.savedCount += 1;
+
+      if (!field.input) continue;
+      result.foundCount += 1;
+
+      if (field.input.value === field.value) {
+        result.readyCount += 1;
+        continue;
+      }
+
+      if (field.input.value && !overwrite) {
+        result.preservedCount += 1;
+        continue;
+      }
+
+      setNativeInputValue(field.input, field.value);
+      result.readyCount += 1;
+    }
+
+    return result;
+  }
+
+  function getAutofillMessage(result) {
+    if (result.savedCount === 0) return '购买信息：未配置';
+    if (result.savedCount < 2) {
+      return `购买信息：已保存 ${result.savedCount} / 2 项`;
+    }
+    if (result.foundCount === 0) return '购买信息：等待表单加载';
+    if (result.preservedCount > 0) {
+      return '购买信息：页面已有内容，未覆盖';
+    }
+    return `购买信息：已自动填写 ${result.readyCount} / 2 项`;
+  }
+
+  function updateControlsStatus() {
+    if (!controls) return;
+
+    const lines = [];
+    if (isShopPage) {
+      lines.push(
+        state.hideOutOfStock
+          ? `已隐藏 ${productStats.outOfStock} / ${productStats.total}`
+          : `显示全部 ${productStats.total}`,
+      );
+    }
+
+    if (autofillMessage) {
+      lines.push(autofillMessage);
+    } else {
+      const details = getSavedCheckoutDetails();
+      const savedCount =
+        Number(Boolean(details.contact)) +
+        Number(Boolean(details.safetyPassword));
+      lines.push(`购买信息：已保存 ${savedCount} / 2 项`);
+    }
+
+    const statusText = lines.join('\n');
+    if (controls.status.textContent !== statusText) {
+      controls.status.textContent = statusText;
+    }
+  }
+
+  function saveCheckoutDetails() {
+    const contact = controls.contactInput.value.trim();
+    const safetyPassword = controls.safetyPasswordInput.value;
+
+    if (!contact || !safetyPassword.trim()) {
+      autofillMessage = '购买信息：请完整填写联系方式和安全密码';
+      updateControlsStatus();
+      return;
+    }
+
+    writeSetting(STORAGE_KEYS.contact, contact);
+    writeSetting(STORAGE_KEYS.safetyPassword, safetyPassword);
+    controls.contactInput.value = contact;
+
+    if (isItemPage) {
+      autofillMessage = getAutofillMessage(
+        fillCheckoutFields({ overwrite: true }),
+      );
+    } else {
+      autofillMessage = '购买信息：已保存 2 / 2 项';
+    }
+    updateControlsStatus();
+  }
+
+  function clearCheckoutDetails() {
+    deleteSetting(STORAGE_KEYS.contact);
+    deleteSetting(STORAGE_KEYS.safetyPassword);
+    controls.contactInput.value = '';
+    controls.safetyPasswordInput.value = '';
+    autofillMessage = '购买信息：已清除保存内容';
+    updateControlsStatus();
+  }
+
   function ensureControls() {
-    if (controls || !document.body) return;
+    if (controls?.panel?.isConnected || !document.body) return;
+    controls = undefined;
 
     const panel = document.createElement('section');
     panel.id = CONTROLS_ID;
-    panel.setAttribute('aria-label', '商品显示设置');
+    panel.setAttribute('aria-label', '链动小铺增强设置');
     panel.innerHTML = `
-      <h2 class="ldxp-controls-title">商品显示</h2>
+      <h2 class="ldxp-controls-title">链动小铺增强</h2>
+      <div class="ldxp-control-section-title">商品显示</div>
       <div class="ldxp-control-row">
         <span class="ldxp-control-label">库存筛选</span>
         <label class="ldxp-checkbox-label">
-          <input class="ldxp-hide-checkbox" type="checkbox" checked>
+          <input class="ldxp-hide-checkbox" type="checkbox">
           <span>隐藏缺货商品</span>
         </label>
       </div>
@@ -199,30 +457,77 @@
           <option value="desc">价格从高到低</option>
         </select>
       </label>
+      <div class="ldxp-control-section-title">购买信息</div>
+      <label class="ldxp-control-row">
+        <span class="ldxp-control-label">联系方式</span>
+        <input class="ldxp-contact-input" type="text" autocomplete="off"
+          spellcheck="false" placeholder="请输入联系方式">
+      </label>
+      <label class="ldxp-control-row">
+        <span class="ldxp-control-label">安全密码</span>
+        <input class="ldxp-password-input" type="password" autocomplete="off"
+          spellcheck="false" placeholder="请输入安全密码">
+      </label>
+      <div class="ldxp-autofill-actions">
+        <button class="ldxp-button ldxp-save-button" type="button">保存并填写</button>
+        <button class="ldxp-button ldxp-button-secondary ldxp-clear-button"
+          type="button">清除保存</button>
+      </div>
+      <p class="ldxp-local-note">四项设置均保存在油猴本地；脚本不会自动提交订单。</p>
       <div class="ldxp-controls-status" aria-live="polite"></div>
     `;
 
     document.body.appendChild(panel);
 
     controls = {
+      panel,
       checkbox: panel.querySelector('.ldxp-hide-checkbox'),
       sortSelect: panel.querySelector('.ldxp-sort-select'),
+      contactInput: panel.querySelector('.ldxp-contact-input'),
+      safetyPasswordInput: panel.querySelector('.ldxp-password-input'),
+      saveButton: panel.querySelector('.ldxp-save-button'),
+      clearButton: panel.querySelector('.ldxp-clear-button'),
       status: panel.querySelector('.ldxp-controls-status'),
     };
 
+    const details = getSavedCheckoutDetails();
+    controls.checkbox.checked = state.hideOutOfStock;
+    controls.sortSelect.value = state.sortOrder;
+    controls.contactInput.value = details.contact;
+    controls.safetyPasswordInput.value = details.safetyPassword;
+
     controls.checkbox.addEventListener('change', () => {
       state.hideOutOfStock = controls.checkbox.checked;
+      writeSetting(STORAGE_KEYS.hideOutOfStock, state.hideOutOfStock);
       document.documentElement.setAttribute(
         ROOT_STATE_ATTRIBUTE,
         String(state.hideOutOfStock),
       );
-      processProducts();
+      if (isShopPage) processProducts();
+      else updateControlsStatus();
     });
 
     controls.sortSelect.addEventListener('change', () => {
       state.sortOrder = controls.sortSelect.value;
-      processProducts();
+      writeSetting(STORAGE_KEYS.sortOrder, state.sortOrder);
+      if (isShopPage) processProducts();
+      else updateControlsStatus();
     });
+
+    controls.saveButton.addEventListener('click', saveCheckoutDetails);
+    controls.clearButton.addEventListener('click', clearCheckoutDetails);
+    for (const input of [
+      controls.contactInput,
+      controls.safetyPasswordInput,
+    ]) {
+      input.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        saveCheckoutDetails();
+      });
+    }
+
+    updateControlsStatus();
   }
 
   function rememberOriginalOrder(cards) {
@@ -415,18 +720,13 @@
     const masonryStats = layoutAvailableCards();
     const total = listStats.total + masonryStats.total;
     const outOfStock = listStats.outOfStock + masonryStats.outOfStock;
+    productStats = { total, outOfStock };
 
     if (!controls) return;
 
     controls.checkbox.checked = state.hideOutOfStock;
     controls.sortSelect.value = state.sortOrder;
-
-    const statusText = state.hideOutOfStock
-      ? `已隐藏 ${outOfStock} / ${total}`
-      : `显示全部 ${total}`;
-    if (controls.status.textContent !== statusText) {
-      controls.status.textContent = statusText;
-    }
+    updateControlsStatus();
   }
 
   function scheduleLayout() {
@@ -442,6 +742,20 @@
     settleTimer = setTimeout(processProducts, 450);
   }
 
+  function processAutofill() {
+    ensureControls();
+    autofillMessage = getAutofillMessage(fillCheckoutFields());
+    updateControlsStatus();
+  }
+
+  function scheduleAutofill() {
+    clearTimeout(autofillTimer);
+    clearTimeout(autofillSettleTimer);
+
+    autofillTimer = setTimeout(processAutofill, 50);
+    autofillSettleTimer = setTimeout(processAutofill, 450);
+  }
+
   function start() {
     document.documentElement.setAttribute(
       ROOT_STATE_ATTRIBUTE,
@@ -449,16 +763,23 @@
     );
     installStyle();
 
-    const observer = new MutationObserver(scheduleLayout);
+    const observer = new MutationObserver(
+      isShopPage ? scheduleLayout : scheduleAutofill,
+    );
     observer.observe(document.documentElement, {
       childList: true,
-      characterData: true,
+      characterData: isShopPage,
       subtree: true,
     });
 
-    window.addEventListener('resize', scheduleLayout, { passive: true });
-    window.addEventListener('load', scheduleLayout, true);
-    scheduleLayout();
+    if (isShopPage) {
+      window.addEventListener('resize', scheduleLayout, { passive: true });
+      window.addEventListener('load', scheduleLayout, true);
+      scheduleLayout();
+    } else if (isItemPage) {
+      window.addEventListener('load', scheduleAutofill, true);
+      scheduleAutofill();
+    }
   }
 
   if (document.documentElement) {
