@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         链动小铺增强工具
 // @namespace    https://github.com/SuperMaxine/ldxp-hide-out-of-stock
-// @version      1.3.0
-// @description  隐藏链动小铺缺货商品、按价格排序，并在购买页自动填写联系方式和安全密码。
+// @version      1.3.1
+// @description  隐藏链动小铺缺货商品、按价格排序，并在购买页或订单确认弹窗中自动填写联系方式和安全密码。
 // @author       SuperMaxine
 // @homepageURL  https://github.com/SuperMaxine/ldxp-hide-out-of-stock
 // @supportURL   https://github.com/SuperMaxine/ldxp-hide-out-of-stock/issues
@@ -735,17 +735,26 @@
 
     // 先等待 Vue 完成本轮渲染，再覆盖网站 Masonry 写入的绝对坐标。
     layoutTimer = setTimeout(() => {
-      requestAnimationFrame(() => requestAnimationFrame(processProducts));
+      requestAnimationFrame(() => requestAnimationFrame(processShopPage));
     }, 50);
 
-    // 图片加载、加载更多等操作可能稍后再次触发原布局，做一次最终校正。
-    settleTimer = setTimeout(processProducts, 450);
+    // 图片加载、加载更多或购买弹窗渲染可能稍后完成，做一次最终校正。
+    settleTimer = setTimeout(processShopPage, 450);
   }
 
   function processAutofill() {
     ensureControls();
-    autofillMessage = getAutofillMessage(fillCheckoutFields());
+    const result = fillCheckoutFields();
+    autofillMessage =
+      isShopPage && result.foundCount === 0
+        ? ''
+        : getAutofillMessage(result);
     updateControlsStatus();
+  }
+
+  function processShopPage() {
+    processProducts();
+    processAutofill();
   }
 
   function scheduleAutofill() {
